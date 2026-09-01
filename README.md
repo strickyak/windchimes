@@ -42,58 +42,58 @@ Usage of /tmp/go-build3761695214/b001/exe/windchime:
 -just=pentatonic means -just=1/1,6/5,4/3,3/2,9/5
 
 ```sh
-  go run main.go -mode sine -a 0.1 -d 0.2 -s 0.5 -r 0.5 | aplay -f S16_LE -c 2 -r 48000
-  go run main.go -mode harm -a 0.1 -d 0.2 -s 0.5 -r 0.5 | aplay -f S16_LE -c 2 -r 48000
-  go run main.go -mode harm -h "10,4,6,3,5,2" |  aplay -f S16_LE -c 2 -r 48000
-  go run main.go -mode harm  |  aplay -f S16_LE -c 2 -r 48000
-  go run main.go -mode wind3 | aplay -f S16_LE -c 2 -r 48000
-  go run main.go -mode wind3 -a 2.0 -r 2.0 -h "10,2,8,2" | aplay -f S16_LE -c 2 -r 48000
-  go run main.go -mode wind3 -t 3.0 | aplay -f S16_LE -c 2 -r 48000
-  go run main.go -mode wind3 -t 3.0 -d 5 | aplay -f S16_LE -c 2 -r 48000
-  go run main.go -mode wind3 -t 3.0 -d 5  -h=100,1,80,1,60,1,40,1,30,1,20,1 | aplay -f S16_LE -c 2 -r 48000
-  go run main.go -mode wind3 -t 3.0 -d 5  -h=100,1,80,1,60,1,40,1,30,1,20,1 -tuning=220 | aplay -f S16_LE -c 2 -r 48000
-  go run main.go -mode wind3   -h=100,1,80,1,60,1,40,1,30,1,20,1 -a=0.3 -d=0.2 -s=0.2 -r=10 -t=2  -tuning=220 | aplay -f S16_LE -c 2 -r 48000
-  go run main.go -mode wind3   -h=100,1,80,1,60,1,40,1,30,1,20,1 -a=0.5 -d=0.2 -s=0.2 -r=10 -t=2  -tuning=220 | aplay -f S16_LE -c 2 -r 48000
-  go run main.go -mode wind3   -h=100,1,80,1,60,1,40,1,30,1,20,1 -a=0.3 -d=0.3 -s=0.4 -r=10 -t=2  -tuning=220 | aplay -f S16_LE -c 2 -r 48000
-  go run main.go -mode wind3   -h=100,1,80,1,60,1,40,1,30,1,20,1 -a=0.1 -d=0.3 -s=0.4 -r=10 -t=2  -tuning=220 | aplay -f S16_LE -c 2 -r 48000
-  go run main.go -mode wind3   -h=100,1,80,1,60,1,40,1,30,1,20,1 -a=0.1 -d=0.3 -s=0.4 -r=10 -t=2  -tuning=110  | aplay -f S16_LE -c 2 -r 48000
-  go run main.go -mode wind3   -h=100,1,80,1,60,1,40,1,30,1,20,1 -a=0.1 -d=0.3 -s=0.4 -r=10 -t=2  -tuning=110  | aplay -f S16_LE -c 2 -r 48000
-  go run main.go -mode wind3   -h=100,1,80,1,60,1,40,1,30,1,20,1 -a=0.1 -d=0.3 -s=0.4 -r=10 -t=2  -octaves=1,5,9  | aplay -f S16_LE -c 2 -r 48000
-  go run main.go -mode wind3   -h=100,1,80,1,60,1,40,1,30,1,20,1 -a=0.1 -d=0.3 -s=0.4 -r=10 -t=2  -octaves=3,3.5 | aplay -f S16_LE -c 2 -r 48000
-  go run main.go -mode wind3   -h=100,1,80,1,60,1,40,1,30,1,20,1 -a=0.1 -d=0.3 -s=0.4 -r=10 -t=2  -octaves=3,3.5 -p=1 | aplay -f S16_LE -c 2 -r 48000
-  go run main.go -mode wind3   -h=100,1,80,1,60,1,40,1,30,1,20,1 -a=0.1 -d=0.3 -s=0.4 -r=10 -t=2  -octaves=1,2.5,3,3.5 -p=1 | aplay -f S16_LE -c 2 -r 48000
-  go run main.go -mode wind3   -h=100,1,80,1,60,1,40,1,30,1,20,1 -a=0.1 -d=0.3 -s=0.4 -r=10 -t=2  -octaves=1,2.5,3,3.5 -p=1 | aplay -f S16_LE -c 2 -r 48000
-  go run main.go -mode wind3 -octaves 3,4,5 -just "1/1,5/4,3/2" | aplay -f S16_LE -c 2 -r 48000
-  go run main.go -mode wind3 -octaves 3,4,5 -just "pentatonic" | aplay -f S16_LE -c 2 -r 48000
-  go run main.go -mode wind3 -octaves 1,2,3,4,5 -just "pentatonic" | aplay -f S16_LE -c 2 -r 48000
-  go run main.go -mode wind3 -octaves 1,2,3,4.7,5.5 -just "pentatonic" | aplay -f S16_LE -c 2 -r 48000
-  go run main.go -mode wind3 -octaves 1,2,3,4.7,5.5 -just "pentatonic"  -a=0.1 -d=0.3 -s=0.4 -r=10 -t=2  -p=1  | aplay -f S16_LE -c 2 -r 48000
-  go run main.go -mode wind3 -octaves 3 -just "1/1,3/2,4/3,5/4,6/5"  -a=0.1 -d=0.3 -s=0.4 -r=10 -t=2  -p=1  | aplay -f S16_LE -c 2 -r 48000
-  go run main.go -mode wind3 -octaves 1,2,3,5.5 -just pentatonic -a=0.1 -d=0.3 -s=0.4 -r=10 -t=2  -p=1  | aplay -f S16_LE -c 2 -r 48000
-  go run main.go -mode wind3 -octaves 1,2,3,4 -just 4/8,5/8,6/8,7/8 -a=0.1 -d=0.3 -s=0.4 -r=10 -t=2  -p=1  | aplay -f S16_LE -c 2 -r 48000
-  go run main.go -mode wind3 -octaves "3+7/12, 4+7/12" | aplay -f S16_LE -c 2 -r 48000
-  go run main.go -mode wind3 -octaves 3,4+7/12 -just pentatonic -a=0.1 -d=0.3 -s=0.4 -r=10 -t=2  -p=1  | aplay -f S16_LE -c 2 -r 48000
-  go run main.go -mode wind3 -octaves 3,4+7/12 -just pentatonic -a=0.1 -d=0.3 -s=0.4 -r=10 -t=2  -p=1 -tuning=110 | aplay -f S16_LE -c 2 -r 48000
-  go run main.go --mode wind3 --even "A,B,C#,D,E,F#,G#" -p=1 -t=6 | aplay -f S16_LE -c 2 -r 48000
-  go run main.go --mode wind3 --even "C,E,G" -p=1 -t=6 | aplay -f S16_LE -c 2 -r 48000
-  go run main.go --mode wind3 --even "C,Eb,G" -p=1 -t=6 | aplay -f S16_LE -c 2 -r 48000
-  go run main.go -mode wind3 -octaves 1,2,3,4 -just 4/8,5/8,6/8,7/8 -a=0.1 -d=0.3 -s=0.4 -r=10 -t=2  -p=1  | aplay -f S16_LE -c 2 -r 48000
-  go run main.go -mode wind3 -octaves 1,2,3,4 -just 4/8,5/8,6/8,7/8,9/8,11/8 -a=0.1 -d=0.3 -s=0.4 -r=10 -t=2  -p=1  | aplay -f S16_LE -c 2 -r 48000
-  go run main.go -mode wind3 -octaves 1,2,3,7+7/12 -just 4/8,5/8,6/8,7/8,9/8,11/8 -a=0.1 -d=0.3 -s=0.4 -r=10 -t=2  -p=1  | aplay -f S16_LE -c 2 -r 48000
-  go run main.go -mode wind3 -octaves 1,2,3 -just 4/8,5/8,6/8,7/8 -a=0.1 -d=0.3 -s=0.4 -r=10 -t=2  -p=1  | aplay -f S16_LE -c 2 -r 48000
-  go run main.go -mode wind3 -octaves 1,2,3 -just pentatonic -a=0.1 -d=0.3 -s=0.4 -r=10 -t=2  -p=1  | aplay -f S16_LE -c 2 -r 48000
+  go run . -mode sine -a 0.1 -d 0.2 -s 0.5 -r 0.5 | aplay -f S16_LE -c 2 -r 48000
+  go run . -mode harm -a 0.1 -d 0.2 -s 0.5 -r 0.5 | aplay -f S16_LE -c 2 -r 48000
+  go run . -mode harm -h "10,4,6,3,5,2" |  aplay -f S16_LE -c 2 -r 48000
+  go run . -mode harm  |  aplay -f S16_LE -c 2 -r 48000
+  go run . -mode wind3 | aplay -f S16_LE -c 2 -r 48000
+  go run . -mode wind3 -a 2.0 -r 2.0 -h "10,2,8,2" | aplay -f S16_LE -c 2 -r 48000
+  go run . -mode wind3 -t 3.0 | aplay -f S16_LE -c 2 -r 48000
+  go run . -mode wind3 -t 3.0 -d 5 | aplay -f S16_LE -c 2 -r 48000
+  go run . -mode wind3 -t 3.0 -d 5  -h=100,1,80,1,60,1,40,1,30,1,20,1 | aplay -f S16_LE -c 2 -r 48000
+  go run . -mode wind3 -t 3.0 -d 5  -h=100,1,80,1,60,1,40,1,30,1,20,1 -tuning=220 | aplay -f S16_LE -c 2 -r 48000
+  go run . -mode wind3   -h=100,1,80,1,60,1,40,1,30,1,20,1 -a=0.3 -d=0.2 -s=0.2 -r=10 -t=2  -tuning=220 | aplay -f S16_LE -c 2 -r 48000
+  go run . -mode wind3   -h=100,1,80,1,60,1,40,1,30,1,20,1 -a=0.5 -d=0.2 -s=0.2 -r=10 -t=2  -tuning=220 | aplay -f S16_LE -c 2 -r 48000
+  go run . -mode wind3   -h=100,1,80,1,60,1,40,1,30,1,20,1 -a=0.3 -d=0.3 -s=0.4 -r=10 -t=2  -tuning=220 | aplay -f S16_LE -c 2 -r 48000
+  go run . -mode wind3   -h=100,1,80,1,60,1,40,1,30,1,20,1 -a=0.1 -d=0.3 -s=0.4 -r=10 -t=2  -tuning=220 | aplay -f S16_LE -c 2 -r 48000
+  go run . -mode wind3   -h=100,1,80,1,60,1,40,1,30,1,20,1 -a=0.1 -d=0.3 -s=0.4 -r=10 -t=2  -tuning=110  | aplay -f S16_LE -c 2 -r 48000
+  go run . -mode wind3   -h=100,1,80,1,60,1,40,1,30,1,20,1 -a=0.1 -d=0.3 -s=0.4 -r=10 -t=2  -tuning=110  | aplay -f S16_LE -c 2 -r 48000
+  go run . -mode wind3   -h=100,1,80,1,60,1,40,1,30,1,20,1 -a=0.1 -d=0.3 -s=0.4 -r=10 -t=2  -octaves=1,5,9  | aplay -f S16_LE -c 2 -r 48000
+  go run . -mode wind3   -h=100,1,80,1,60,1,40,1,30,1,20,1 -a=0.1 -d=0.3 -s=0.4 -r=10 -t=2  -octaves=3,3.5 | aplay -f S16_LE -c 2 -r 48000
+  go run . -mode wind3   -h=100,1,80,1,60,1,40,1,30,1,20,1 -a=0.1 -d=0.3 -s=0.4 -r=10 -t=2  -octaves=3,3.5 -p=1 | aplay -f S16_LE -c 2 -r 48000
+  go run . -mode wind3   -h=100,1,80,1,60,1,40,1,30,1,20,1 -a=0.1 -d=0.3 -s=0.4 -r=10 -t=2  -octaves=1,2.5,3,3.5 -p=1 | aplay -f S16_LE -c 2 -r 48000
+  go run . -mode wind3   -h=100,1,80,1,60,1,40,1,30,1,20,1 -a=0.1 -d=0.3 -s=0.4 -r=10 -t=2  -octaves=1,2.5,3,3.5 -p=1 | aplay -f S16_LE -c 2 -r 48000
+  go run . -mode wind3 -octaves 3,4,5 -just "1/1,5/4,3/2" | aplay -f S16_LE -c 2 -r 48000
+  go run . -mode wind3 -octaves 3,4,5 -just "pentatonic" | aplay -f S16_LE -c 2 -r 48000
+  go run . -mode wind3 -octaves 1,2,3,4,5 -just "pentatonic" | aplay -f S16_LE -c 2 -r 48000
+  go run . -mode wind3 -octaves 1,2,3,4.7,5.5 -just "pentatonic" | aplay -f S16_LE -c 2 -r 48000
+  go run . -mode wind3 -octaves 1,2,3,4.7,5.5 -just "pentatonic"  -a=0.1 -d=0.3 -s=0.4 -r=10 -t=2  -p=1  | aplay -f S16_LE -c 2 -r 48000
+  go run . -mode wind3 -octaves 3 -just "1/1,3/2,4/3,5/4,6/5"  -a=0.1 -d=0.3 -s=0.4 -r=10 -t=2  -p=1  | aplay -f S16_LE -c 2 -r 48000
+  go run . -mode wind3 -octaves 1,2,3,5.5 -just pentatonic -a=0.1 -d=0.3 -s=0.4 -r=10 -t=2  -p=1  | aplay -f S16_LE -c 2 -r 48000
+  go run . -mode wind3 -octaves 1,2,3,4 -just 4/8,5/8,6/8,7/8 -a=0.1 -d=0.3 -s=0.4 -r=10 -t=2  -p=1  | aplay -f S16_LE -c 2 -r 48000
+  go run . -mode wind3 -octaves "3+7/12, 4+7/12" | aplay -f S16_LE -c 2 -r 48000
+  go run . -mode wind3 -octaves 3,4+7/12 -just pentatonic -a=0.1 -d=0.3 -s=0.4 -r=10 -t=2  -p=1  | aplay -f S16_LE -c 2 -r 48000
+  go run . -mode wind3 -octaves 3,4+7/12 -just pentatonic -a=0.1 -d=0.3 -s=0.4 -r=10 -t=2  -p=1 -tuning=110 | aplay -f S16_LE -c 2 -r 48000
+  go run . --mode wind3 --even "A,B,C#,D,E,F#,G#" -p=1 -t=6 | aplay -f S16_LE -c 2 -r 48000
+  go run . --mode wind3 --even "C,E,G" -p=1 -t=6 | aplay -f S16_LE -c 2 -r 48000
+  go run . --mode wind3 --even "C,Eb,G" -p=1 -t=6 | aplay -f S16_LE -c 2 -r 48000
+  go run . -mode wind3 -octaves 1,2,3,4 -just 4/8,5/8,6/8,7/8 -a=0.1 -d=0.3 -s=0.4 -r=10 -t=2  -p=1  | aplay -f S16_LE -c 2 -r 48000
+  go run . -mode wind3 -octaves 1,2,3,4 -just 4/8,5/8,6/8,7/8,9/8,11/8 -a=0.1 -d=0.3 -s=0.4 -r=10 -t=2  -p=1  | aplay -f S16_LE -c 2 -r 48000
+  go run . -mode wind3 -octaves 1,2,3,7+7/12 -just 4/8,5/8,6/8,7/8,9/8,11/8 -a=0.1 -d=0.3 -s=0.4 -r=10 -t=2  -p=1  | aplay -f S16_LE -c 2 -r 48000
+  go run . -mode wind3 -octaves 1,2,3 -just 4/8,5/8,6/8,7/8 -a=0.1 -d=0.3 -s=0.4 -r=10 -t=2  -p=1  | aplay -f S16_LE -c 2 -r 48000
+  go run . -mode wind3 -octaves 1,2,3 -just pentatonic -a=0.1 -d=0.3 -s=0.4 -r=10 -t=2  -p=1  | aplay -f S16_LE -c 2 -r 48000
 
 ```sh
   # Direct native audio playback (Linux, macOS, Windows - no pipes needed!):
-  go run main.go -mode wind3
-  go run main.go -mode wind3 -midi auto
-  go run main.go -mode midi
+  go run . -mode wind3
+  go run . -mode wind3 -midi auto
+  go run . -mode midi
 
   # Native playback with custom tuning and harmonics:
-  go run main.go -mode wind3 -midi auto -midia 0.01 -midir 0.4 -midis 0.7
+  go run . -mode wind3 -midi auto -midia 0.01 -midir 0.4 -midis 0.7
 
   # Pipe to stdout / aplay (if explicitly desired):
-  go run main.go -mode wind3 -out stdout | aplay -B 20000 -F 5000 -f S16_LE -c 2 -r 48000
+  go run . -mode wind3 -out stdout | aplay -B 20000 -F 5000 -f S16_LE -c 2 -r 48000
 
   # Cross-compiling standalone binaries:
   GOOS=windows GOARCH=amd64 go build -o windchime.exe .
