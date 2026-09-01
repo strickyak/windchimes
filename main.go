@@ -828,13 +828,23 @@ func main() {
 	engine := NewAudioEngine(float32(*ogFlag), float32(*reverbFlag))
 	var activeSources int32
 	runForever := false
+	modeExplicit := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "mode" {
+			modeExplicit = true
+		}
+	})
 
 	if *modeFlag == "sine" {
-		v := newVoice(1000.0, []float64{1.0}, *attackFlag, *decayFlag, *sustainFlag, sustainTime, *releaseFlag, 1.0, 1.0, 0, false)
-		engine.AddVoice(v)
+		if modeExplicit || (*midiFileFlag == "" && *songFileFlag == "" && *midiFlag == "") {
+			v := newVoice(1000.0, []float64{1.0}, *attackFlag, *decayFlag, *sustainFlag, sustainTime, *releaseFlag, 1.0, 1.0, 0, false)
+			engine.AddVoice(v)
+		}
 	} else if *modeFlag == "harm" {
-		v := newVoice(1000.0, harmonics, *attackFlag, *decayFlag, *sustainFlag, sustainTime, *releaseFlag, 1.0, 1.0, 0, false)
-		engine.AddVoice(v)
+		if modeExplicit || (*midiFileFlag == "" && *songFileFlag == "" && *midiFlag == "") {
+			v := newVoice(1000.0, harmonics, *attackFlag, *decayFlag, *sustainFlag, sustainTime, *releaseFlag, 1.0, 1.0, 0, false)
+			engine.AddVoice(v)
+		}
 	} else if *modeFlag == "wind3" {
 		runForever = true
 
