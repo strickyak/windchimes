@@ -89,13 +89,20 @@ Usage of /tmp/go-build3761695214/b001/exe/windchime:
   go run . -mode wind3 -midi auto
   go run . -mode midi
 
-  # Native playback with custom tuning and harmonics:
+  # Play a Standard MIDI File (.mid):
+  go run . -midifile midifiles/widor_toccata_\(c\)shattuck.mid
+  go run . -midifile midifiles/widor_toccata_\(c\)shattuck.mid -midispeed 150
+  go run . -midifile midifiles/widor_toccata_\(c\)shattuck.mid -midih "10,5,3,2,1" -midir 0.5
+
+  # Play MIDI file alongside stochastic windchimes:
+  go run . -mode wind3 -midifile midifiles/widor_toccata_\(c\)shattuck.mid
+
+  # Native live keyboard with custom tuning and harmonics:
   go run . -mode wind3 -midi auto -midia 0.01 -midir 0.4 -midis 0.7
 
   # Pipe to stdout / aplay (if explicitly desired):
   go run . -mode wind3 -out stdout | aplay -B 20000 -F 5000 -f S16_LE -c 2 -r 48000
 
   # Cross-compiling standalone binaries:
-  GOOS=windows GOARCH=amd64 go build -o windchime.exe .
-  GOOS=darwin  GOARCH=arm64 go build -o windchime-mac .
+  make
 ```

@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -279,7 +280,7 @@ func (e *AudioEngine) ReleaseMidiNote(note byte) {
 	}
 }
 
-func (e *AudioEngine) RenderBlock(buf []byte, runForever bool) bool {
+func (e *AudioEngine) RenderBlock(buf []byte, isPlaying func() bool) bool {
 	for i := range buf {
 		buf[i] = 0
 	}
@@ -287,8 +288,10 @@ func (e *AudioEngine) RenderBlock(buf []byte, runForever bool) bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
+	keepRunning := isPlaying != nil && isPlaying()
+
 	if len(e.voices) == 0 {
-		return runForever
+		return keepRunning
 	}
 
 	var remainingVoices []*Voice
@@ -329,14 +332,14 @@ func (e *AudioEngine) RenderBlock(buf []byte, runForever bool) bool {
 		}
 	}
 	e.voices = remainingVoices
-	return len(e.voices) > 0 || runForever
+	return len(e.voices) > 0 || keepRunning
 }
 
-func (e *AudioEngine) RenderLoopToStdout(runForever bool) {
+func (e *AudioEngine) RenderLoopToStdout(isPlaying func() bool) {
 	var buf [blockSize * 4]byte
 	for {
-		active := e.RenderBlock(buf[:], runForever)
-		if !active && !runForever {
+		active := e.RenderBlock(buf[:], isPlaying)
+		if !active {
 			break
 		}
 		_, err := os.Stdout.Write(buf[:])
@@ -551,6 +554,8 @@ func main() {
 	evenFlag := flag.String("even", "A,C,D,E,G", "Even-tempered scale notes (e.g. A,C,D,E,G or C,E,G,Bb)")
 	songFileFlag := flag.String("songfile", "", "Song file to play")
 	songSpeedFlag := flag.Float64("songspeed", 100.0, "Speed to play the song as a percentage (100 is normal)")
+	midiFileFlag := flag.String("midifile", "", "MIDI file (.mid) to play")
+	midiSpeedFlag := flag.Float64("midispeed", 100.0, "Speed to play the MIDI file as a percentage (100 is normal)")
 	midiFlag := flag.String("midi", "", "MIDI raw device path (e.g. '/dev/snd/midiC1D0' or 'auto')")
 	midiAttackFlag := flag.Float64("midia", 0.01, "MIDI keyboard attack time in seconds")
 	midiDecayFlag := flag.Float64("midid", 0.1, "MIDI keyboard decay time in seconds")
@@ -669,6 +674,7 @@ func main() {
 	}
 
 	engine := NewAudioEngine(float32(*ogFlag))
+	var activeSources int32
 	runForever := false
 
 	if *modeFlag == "sine" {
@@ -711,7 +717,7 @@ func main() {
 		}()
 	} else if *modeFlag == "midi" {
 		runForever = true
-		if *midiFlag == "" {
+		if *midiFlag == "" && *midiFileFlag == "" {
 			*midiFlag = "auto"
 		}
 	} else if *modeFlag == "song" {
@@ -725,10 +731,12 @@ func main() {
 			os.Exit(1)
 		}
 
+		atomic.AddInt32(&activeSources, int32(len(channels)))
 		for chID, notes := range channels {
 			chNotes := notes
 			chNum := chID
 			go func() {
+				defer atomic.AddInt32(&activeSources, -1)
 				rightPct := float32(chNum%4)*0.2 + 0.2
 				if len(channels) == 1 {
 					rightPct = 0.5
@@ -757,6 +765,31 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Play MIDI file if provided
+	if *midiFileFlag != "" {
+		atomic.AddInt32(&activeSources, 1)
+		err := playMidiFile(
+			*midiFileFlag,
+			engine,
+			*midiSpeedFlag,
+			*tuningFlag,
+			midiHarmonics,
+			*midiAttackFlag,
+			*midiDecayFlag,
+			*midiSustainFlag,
+			*midiReleaseFlag,
+			*midiGainFlag,
+			*midiPanFlag,
+			func() {
+				atomic.AddInt32(&activeSources, -1)
+			},
+		)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error playing MIDI file: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
 	// Start MIDI listener if requested
 	if *midiFlag != "" {
 		runForever = true
@@ -777,13 +810,17 @@ func main() {
 		}
 	}
 
+	isPlaying := func() bool {
+		return runForever || atomic.LoadInt32(&activeSources) > 0
+	}
+
 	if *outFlag == "stdout" {
-		engine.RenderLoopToStdout(runForever)
+		engine.RenderLoopToStdout(isPlaying)
 	} else {
-		err := engine.PlayNative(runForever)
+		err := engine.PlayNative(isPlaying)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Audio playback error: %v\nFalling back to stdout...\n", err)
-			engine.RenderLoopToStdout(runForever)
+			engine.RenderLoopToStdout(isPlaying)
 		}
 	}
 }

@@ -7,7 +7,7 @@ import (
 	"os/exec"
 )
 
-func (e *AudioEngine) PlayNative(runForever bool) error {
+func (e *AudioEngine) PlayNative(isPlaying func() bool) error {
 	cmd := exec.Command("aplay", "-B", "20000", "-F", "5000", "-f", "S16_LE", "-c", "2", "-r", "48000")
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -21,8 +21,8 @@ func (e *AudioEngine) PlayNative(runForever bool) error {
 
 	var buf [blockSize * 4]byte
 	for {
-		active := e.RenderBlock(buf[:], runForever)
-		if !active && !runForever {
+		active := e.RenderBlock(buf[:], isPlaying)
+		if !active {
 			break
 		}
 		_, err := stdin.Write(buf[:])

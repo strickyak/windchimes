@@ -11,11 +11,11 @@ import (
 )
 
 type AudioReader struct {
-	engine     *AudioEngine
-	runForever bool
-	buf        [blockSize * 4]byte
-	bufOffset  int
-	bufLen     int
+	engine    *AudioEngine
+	isPlaying func() bool
+	buf       [blockSize * 4]byte
+	bufOffset int
+	bufLen    int
 }
 
 func (r *AudioReader) Read(p []byte) (int, error) {
@@ -32,8 +32,8 @@ func (r *AudioReader) Read(p []byte) (int, error) {
 			continue
 		}
 
-		active := r.engine.RenderBlock(r.buf[:], r.runForever)
-		if !active && !r.runForever {
+		active := r.engine.RenderBlock(r.buf[:], r.isPlaying)
+		if !active {
 			if total > 0 {
 				return total, nil
 			}
@@ -45,7 +45,7 @@ func (r *AudioReader) Read(p []byte) (int, error) {
 	return total, nil
 }
 
-func (e *AudioEngine) PlayNative(runForever bool) error {
+func (e *AudioEngine) PlayNative(isPlaying func() bool) error {
 	op := &oto.NewContextOptions{
 		SampleRate:   int(sampleRate),
 		ChannelCount: 2,
@@ -60,8 +60,8 @@ func (e *AudioEngine) PlayNative(runForever bool) error {
 	<-readyChan
 
 	reader := &AudioReader{
-		engine:     e,
-		runForever: runForever,
+		engine:    e,
+		isPlaying: isPlaying,
 	}
 
 	player := otoCtx.NewPlayer(reader)

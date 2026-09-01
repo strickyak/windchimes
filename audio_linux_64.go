@@ -11,17 +11,17 @@ import (
 	"github.com/ebitengine/purego"
 )
 
-func (e *AudioEngine) PlayNative(runForever bool) error {
-	err := e.playALSA(runForever)
+func (e *AudioEngine) PlayNative(isPlaying func() bool) error {
+	err := e.playALSA(isPlaying)
 	if err == nil {
 		return nil
 	}
 
 	fmt.Fprintf(os.Stderr, "Direct ALSA load failed (%v), falling back to background aplay...\n", err)
-	return e.playAplayFallback(runForever)
+	return e.playAplayFallback(isPlaying)
 }
 
-func (e *AudioEngine) playALSA(runForever bool) error {
+func (e *AudioEngine) playALSA(isPlaying func() bool) error {
 	asound, err := purego.Dlopen("libasound.so.2", purego.RTLD_GLOBAL)
 	if err != nil {
 		return fmt.Errorf("could not dlopen libasound.so.2: %w", err)
@@ -59,8 +59,8 @@ func (e *AudioEngine) playALSA(runForever bool) error {
 
 	var buf [blockSize * 4]byte
 	for {
-		active := e.RenderBlock(buf[:], runForever)
-		if !active && !runForever {
+		active := e.RenderBlock(buf[:], isPlaying)
+		if !active {
 			break
 		}
 
@@ -84,7 +84,7 @@ func (e *AudioEngine) playALSA(runForever bool) error {
 	return nil
 }
 
-func (e *AudioEngine) playAplayFallback(runForever bool) error {
+func (e *AudioEngine) playAplayFallback(isPlaying func() bool) error {
 	cmd := exec.Command("aplay", "-B", "20000", "-F", "5000", "-f", "S16_LE", "-c", "2", "-r", "48000")
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -98,8 +98,8 @@ func (e *AudioEngine) playAplayFallback(runForever bool) error {
 
 	var buf [blockSize * 4]byte
 	for {
-		active := e.RenderBlock(buf[:], runForever)
-		if !active && !runForever {
+		active := e.RenderBlock(buf[:], isPlaying)
+		if !active {
 			break
 		}
 		_, err := stdin.Write(buf[:])
