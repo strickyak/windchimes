@@ -22,7 +22,7 @@ func (e *AudioEngine) PlayNative(isPlaying func() bool) error {
 }
 
 func (e *AudioEngine) playALSA(isPlaying func() bool) error {
-	asound, err := purego.Dlopen("libasound.so.2", purego.RTLD_GLOBAL)
+	asound, err := purego.Dlopen("libasound.so.2", purego.RTLD_NOW|purego.RTLD_GLOBAL)
 	if err != nil {
 		return fmt.Errorf("could not dlopen libasound.so.2: %w", err)
 	}
