@@ -53,11 +53,28 @@ func clampInt16(val int32) int16 {
 	return int16(val)
 }
 
+const wavetableSize = 2048
+const wavetableMask = wavetableSize - 1
+
+func buildWavetable(harmonics []float64) []float32 {
+	norm := normalizeHarmonics(harmonics)
+	tbl := make([]float32, wavetableSize)
+	for i := 0; i < wavetableSize; i++ {
+		phase := (float64(i) / float64(wavetableSize)) * twoPi
+		var sum float64
+		for h, amp := range norm {
+			sum += amp * math.Sin(phase*float64(h+1))
+		}
+		tbl[i] = float32(sum)
+	}
+	return tbl
+}
+
 type Voice struct {
 	freq           float64
 	phase          float64
 	phaseIncrement float64
-	harmonics      []float64
+	wavetable      []float32
 
 	// Chorus (dual detuned oscillator for strings/ensembles)
 	hasChorus bool
@@ -111,7 +128,7 @@ func newVoice(freq float64, harmonics []float64, attack, decay, sustainLevel, su
 	return &Voice{
 		freq:           freq,
 		phaseIncrement: twoPi * freq / sampleRate,
-		harmonics:      normalizeHarmonics(harmonics),
+		wavetable:      buildWavetable(harmonics),
 		attackSamples:  attackSamples,
 		decaySamples:   decaySamples,
 		sustainSamples: sustainSamples,
@@ -129,7 +146,7 @@ func newVoiceAdvanced(
 	channel uint8,
 	midiNote byte,
 	tuning float64,
-	harmonics []float64,
+	wavetable []float32,
 	attack, decay, sustainLevel, release float64,
 	leftGain, rightGain float32,
 	hasChorus bool,
@@ -158,7 +175,7 @@ func newVoiceAdvanced(
 		hasChorus:      hasChorus,
 		vibratoRate:    vibratoRate,
 		vibratoDepth:   vibratoDepth,
-		harmonics:      normalizeHarmonics(harmonics),
+		wavetable:      wavetable,
 		attackSamples:  attackSamples,
 		decaySamples:   decaySamples,
 		sustainSamples: 0, // Interactive sustain until released
@@ -272,10 +289,10 @@ func (v *Voice) NextSample() (float32, bool) {
 		phaseInc *= 1.0 + math.Sin(v.vibratoPhase)*v.vibratoDepth
 	}
 
-	var waveVal float64
-	for i, amp := range v.harmonics {
-		waveVal += amp * math.Sin(v.phase*float64(i+1))
-	}
+	phaseNorm := v.phase * (float64(wavetableSize) / twoPi)
+	idx := int(phaseNorm) & wavetableMask
+	waveVal := float64(v.wavetable[idx])
+
 	v.phase += phaseInc
 	if v.phase >= twoPi {
 		v.phase -= twoPi
@@ -283,10 +300,9 @@ func (v *Voice) NextSample() (float32, bool) {
 
 	// Dual-phase chorus detune for ensemble richness
 	if v.hasChorus {
-		var waveVal2 float64
-		for i, amp := range v.harmonics {
-			waveVal2 += amp * math.Sin(v.phase2*float64(i+1))
-		}
+		phaseNorm2 := v.phase2 * (float64(wavetableSize) / twoPi)
+		idx2 := int(phaseNorm2) & wavetableMask
+		waveVal2 := float64(v.wavetable[idx2])
 		v.phase2 += phaseInc * 1.0018 // Detuned by ~3 cents
 		if v.phase2 >= twoPi {
 			v.phase2 -= twoPi

@@ -3,6 +3,7 @@ package main
 type GMPreset struct {
 	Name         string
 	Harmonics    []float64
+	Wavetable    []float32
 	Attack       float64
 	Decay        float64
 	Sustain      float64
@@ -13,8 +14,22 @@ type GMPreset struct {
 	VibratoDepth float64
 }
 
+var gmPresetCache [128]GMPreset
+
+func init() {
+	for p := 0; p < 128; p++ {
+		preset := computeGMPreset(uint8(p))
+		preset.Wavetable = buildWavetable(preset.Harmonics)
+		gmPresetCache[p] = preset
+	}
+}
+
 // GetGMPreset returns acoustic instrument synthesis parameters for a given General MIDI program (0-127).
 func GetGMPreset(program uint8) GMPreset {
+	return gmPresetCache[program%128]
+}
+
+func computeGMPreset(program uint8) GMPreset {
 	switch {
 	// --- Pianos (0 - 5) ---
 	case program <= 5:

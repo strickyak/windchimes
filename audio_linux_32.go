@@ -8,7 +8,7 @@ import (
 )
 
 func (e *AudioEngine) PlayNative(isPlaying func() bool) error {
-	cmd := exec.Command("aplay", "-B", "20000", "-F", "5000", "-f", "S16_LE", "-c", "2", "-r", "48000")
+	cmd := exec.Command("aplay", "-B", "60000", "-F", "15000", "-f", "S16_LE", "-c", "2", "-r", "48000")
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return err

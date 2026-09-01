@@ -51,8 +51,8 @@ func (e *AudioEngine) playALSA(isPlaying func() bool) error {
 	defer snd_pcm_close(pcm)
 
 	// SND_PCM_FORMAT_S16_LE = 2, SND_PCM_ACCESS_RW_INTERLEAVED = 3
-	// rate = 48000, channels = 2, soft_resample = 1, latency_us = 20000 (20ms)
-	ret = snd_pcm_set_params(pcm, 2, 3, 2, int(sampleRate), 1, 20000)
+	// rate = 48000, channels = 2, soft_resample = 1, latency_us = 60000 (60ms)
+	ret = snd_pcm_set_params(pcm, 2, 3, 2, int(sampleRate), 1, 60000)
 	if ret < 0 {
 		return fmt.Errorf("snd_pcm_set_params failed with code: %d", ret)
 	}
@@ -85,7 +85,7 @@ func (e *AudioEngine) playALSA(isPlaying func() bool) error {
 }
 
 func (e *AudioEngine) playAplayFallback(isPlaying func() bool) error {
-	cmd := exec.Command("aplay", "-B", "20000", "-F", "5000", "-f", "S16_LE", "-c", "2", "-r", "48000")
+	cmd := exec.Command("aplay", "-B", "60000", "-F", "15000", "-f", "S16_LE", "-c", "2", "-r", "48000")
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return err

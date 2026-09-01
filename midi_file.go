@@ -139,7 +139,7 @@ func playMidiFile(
 						ev.channel,
 						ev.note,
 						tuning,
-						preset.Harmonics,
+						preset.Wavetable,
 						preset.Attack,
 						preset.Decay,
 						preset.Sustain,
