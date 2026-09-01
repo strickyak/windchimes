@@ -83,12 +83,19 @@ Usage of /tmp/go-build3761695214/b001/exe/windchime:
   go run main.go -mode wind3 -octaves 1,2,3 -just 4/8,5/8,6/8,7/8 -a=0.1 -d=0.3 -s=0.4 -r=10 -t=2  -p=1  | aplay -f S16_LE -c 2 -r 48000
   go run main.go -mode wind3 -octaves 1,2,3 -just pentatonic -a=0.1 -d=0.3 -s=0.4 -r=10 -t=2  -p=1  | aplay -f S16_LE -c 2 -r 48000
 
-  # Play live MIDI keyboard alongside windchimes with low latency (20ms ALSA buffer):
-  go run main.go -mode wind3 -midi auto | aplay -B 20000 -F 5000 -f S16_LE -c 2 -r 48000
+```sh
+  # Direct native audio playback (Linux, macOS, Windows - no pipes needed!):
+  go run main.go -mode wind3
+  go run main.go -mode wind3 -midi auto
+  go run main.go -mode midi
 
-  # Play live MIDI keyboard alongside windchimes with custom keyboard harmonics/envelope:
-  go run main.go -mode wind3 -midi /dev/snd/midiC1D0 -midia 0.01 -midir 0.4 -midis 0.7 | aplay -B 20000 -F 5000 -f S16_LE -c 2 -r 48000
+  # Native playback with custom tuning and harmonics:
+  go run main.go -mode wind3 -midi auto -midia 0.01 -midir 0.4 -midis 0.7
 
-  # Standalone low-latency MIDI synthesizer mode:
-  go run main.go -mode midi | aplay -B 20000 -F 5000 -f S16_LE -c 2 -r 48000
+  # Pipe to stdout / aplay (if explicitly desired):
+  go run main.go -mode wind3 -out stdout | aplay -B 20000 -F 5000 -f S16_LE -c 2 -r 48000
+
+  # Cross-compiling standalone binaries:
+  GOOS=windows GOARCH=amd64 go build -o windchime.exe .
+  GOOS=darwin  GOARCH=arm64 go build -o windchime-mac .
 ```

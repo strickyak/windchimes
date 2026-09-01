@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"flag"
 	"fmt"
+	"io"
 	"math"
 	"math/rand"
 	"os"
@@ -13,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/ebitengine/oto/v3"
 )
 
 const sampleRate = 48000.0
@@ -280,72 +283,136 @@ func (e *AudioEngine) ReleaseMidiNote(note byte) {
 	}
 }
 
-func (e *AudioEngine) RenderLoop(runForever bool, hasMoreNotes func() bool) {
-	var buf [blockSize * 4]byte
+func (e *AudioEngine) RenderBlock(buf []byte, runForever bool) bool {
+	for i := range buf {
+		buf[i] = 0
+	}
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if len(e.voices) == 0 {
+		return runForever
+	}
+
+	var remainingVoices []*Voice
 	voiceScratch := make([]float32, blockSize)
 
+	for _, v := range e.voices {
+		active := false
+		for i := 0; i < blockSize; i++ {
+			sample, ok := v.NextSample()
+			if ok {
+				active = true
+				voiceScratch[i] = sample
+			} else {
+				voiceScratch[i] = 0
+			}
+		}
+
+		if active {
+			remainingVoices = append(remainingVoices, v)
+			lScale := v.leftGain * e.gain * 32767.0
+			rScale := v.rightGain * e.gain * 32767.0
+
+			for i := 0; i < blockSize; i++ {
+				s := voiceScratch[i]
+				if s == 0 {
+					continue
+				}
+				offset := i * 4
+				curL := int16(binary.LittleEndian.Uint16(buf[offset : offset+2]))
+				curR := int16(binary.LittleEndian.Uint16(buf[offset+2 : offset+4]))
+
+				newL := clampInt16(int32(curL) + int32(s*lScale))
+				newR := clampInt16(int32(curR) + int32(s*rScale))
+
+				binary.LittleEndian.PutUint16(buf[offset:offset+2], uint16(newL))
+				binary.LittleEndian.PutUint16(buf[offset+2:offset+4], uint16(newR))
+			}
+		}
+	}
+	e.voices = remainingVoices
+	return len(e.voices) > 0 || runForever
+}
+
+func (e *AudioEngine) RenderLoopToStdout(runForever bool) {
+	var buf [blockSize * 4]byte
 	for {
-		e.mu.Lock()
-		activeCount := len(e.voices)
-		e.mu.Unlock()
-
-		if activeCount == 0 && !runForever {
-			if hasMoreNotes == nil || !hasMoreNotes() {
-				break
-			}
+		active := e.RenderBlock(buf[:], runForever)
+		if !active && !runForever {
+			break
 		}
-
-		// Zero the output buffer
-		for i := range buf {
-			buf[i] = 0
-		}
-
-		e.mu.Lock()
-		if len(e.voices) > 0 {
-			var remainingVoices []*Voice
-			for _, v := range e.voices {
-				active := false
-				for i := 0; i < blockSize; i++ {
-					sample, ok := v.NextSample()
-					if ok {
-						active = true
-						voiceScratch[i] = sample
-					} else {
-						voiceScratch[i] = 0
-					}
-				}
-
-				if active {
-					remainingVoices = append(remainingVoices, v)
-					lScale := v.leftGain * e.gain * 32767.0
-					rScale := v.rightGain * e.gain * 32767.0
-
-					for i := 0; i < blockSize; i++ {
-						s := voiceScratch[i]
-						if s == 0 {
-							continue
-						}
-						offset := i * 4
-						curL := int16(binary.LittleEndian.Uint16(buf[offset : offset+2]))
-						curR := int16(binary.LittleEndian.Uint16(buf[offset+2 : offset+4]))
-
-						newL := clampInt16(int32(curL) + int32(s*lScale))
-						newR := clampInt16(int32(curR) + int32(s*rScale))
-
-						binary.LittleEndian.PutUint16(buf[offset:offset+2], uint16(newL))
-						binary.LittleEndian.PutUint16(buf[offset+2:offset+4], uint16(newR))
-					}
-				}
-			}
-			e.voices = remainingVoices
-		}
-		e.mu.Unlock()
-
 		_, err := os.Stdout.Write(buf[:])
 		if err != nil {
 			break
 		}
 	}
+}
+
+type AudioReader struct {
+	engine     *AudioEngine
+	runForever bool
+	buf        [blockSize * 4]byte
+	bufOffset  int
+	bufLen     int
+}
+
+func (r *AudioReader) Read(p []byte) (int, error) {
+	total := 0
+	for total < len(p) {
+		if r.bufLen > 0 {
+			n := copy(p[total:], r.buf[r.bufOffset:r.bufOffset+r.bufLen])
+			r.bufOffset += n
+			r.bufLen -= n
+			total += n
+			if r.bufLen == 0 {
+				r.bufOffset = 0
+			}
+			continue
+		}
+
+		active := r.engine.RenderBlock(r.buf[:], r.runForever)
+		if !active && !r.runForever {
+			if total > 0 {
+				return total, nil
+			}
+			return 0, io.EOF
+		}
+		r.bufOffset = 0
+		r.bufLen = len(r.buf)
+	}
+	return total, nil
+}
+
+func (e *AudioEngine) PlayNative(runForever bool) error {
+	op := &oto.NewContextOptions{
+		SampleRate:   int(sampleRate),
+		ChannelCount: 2,
+		Format:       oto.FormatSignedInt16LE,
+		BufferSize:   20 * time.Millisecond,
+	}
+
+	otoCtx, readyChan, err := oto.NewContext(op)
+	if err != nil {
+		return fmt.Errorf("failed to initialize native audio: %w", err)
+	}
+	<-readyChan
+
+	reader := &AudioReader{
+		engine:     e,
+		runForever: runForever,
+	}
+
+	player := otoCtx.NewPlayer(reader)
+	player.SetBufferSize(int(sampleRate) * 4 * 20 / 1000) // 20ms buffer
+	player.Play()
+
+	for player.IsPlaying() {
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	return nil
 }
 
 func findDefaultMidiDevice() string {
@@ -664,6 +731,7 @@ func main() {
 	midiGainFlag := flag.Float64("midigain", 0.5, "MIDI note volume multiplier")
 	midiHarmonicsFlag := flag.String("midih", "", "MIDI harmonics vector (defaults to -h if empty)")
 	midiPanFlag := flag.String("midipan", "spread", "MIDI stereo panning mode ('spread', 'center', or 'random')")
+	outFlag := flag.String("out", "speakers", "Audio output target: 'speakers' (native direct playback) or 'stdout' (PCM byte stream)")
 
 	flag.Parse()
 
@@ -881,5 +949,13 @@ func main() {
 		}
 	}
 
-	engine.RenderLoop(runForever, nil)
+	if *outFlag == "stdout" {
+		engine.RenderLoopToStdout(runForever)
+	} else {
+		err := engine.PlayNative(runForever)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Audio playback error: %v\nFalling back to stdout...\n", err)
+			engine.RenderLoopToStdout(runForever)
+		}
+	}
 }
