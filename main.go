@@ -7,19 +7,23 @@ import (
 	"math"
 	"math/rand"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 )
 
 const sampleRate = 48000.0
 const twoPi = 2.0 * math.Pi
+const chanBufSize = 128
 
 // SineWave produces a channel of 48000 float32 samples per second
 // for a given frequency sine wave ranging -1.0 to +1.0.
 func SineWave(freq float64) <-chan float32 {
-	out := make(chan float32, 1024)
+	out := make(chan float32, chanBufSize)
 	go func() {
 		var phase float64
 		phaseIncrement := twoPi * freq / sampleRate
@@ -38,7 +42,7 @@ func SineWave(freq float64) <-chan float32 {
 // for a given fundamental frequency, combining multiple harmonics based on
 // the provided relative amplitudes. The amplitudes are normalized to sum to 1.0.
 func HarmonicWave(freq float64, harmonics []float64) <-chan float32 {
-	out := make(chan float32, 1024)
+	out := make(chan float32, chanBufSize)
 
 	// Normalize harmonics so their sum is 1.0
 	var sum float64
@@ -74,7 +78,7 @@ func HarmonicWave(freq float64, harmonics []float64) <-chan float32 {
 
 // Envelope applies an ADSR envelope to an input channel.
 func Envelope(in <-chan float32, attack, decay, sustainLevel, sustainTime, release float64) <-chan float32 {
-	out := make(chan float32, 1024)
+	out := make(chan float32, chanBufSize)
 	go func() {
 		defer close(out)
 
@@ -104,6 +108,255 @@ func Envelope(in <-chan float32, attack, decay, sustainLevel, sustainTime, relea
 	return out
 }
 
+// InteractiveHarmonicNote produces a channel of audio samples with an ADSR envelope
+// that sustains until stopFlag is set to true (key-up event), at which point it releases.
+func InteractiveHarmonicNote(freq float64, harmonics []float64, attack, decay, sustainLevel, release float64, stopFlag *atomic.Bool) <-chan float32 {
+	out := make(chan float32, chanBufSize)
+	go func() {
+		defer close(out)
+
+		// Normalize harmonics
+		var sum float64
+		for _, h := range harmonics {
+			sum += h
+		}
+		normalized := make([]float64, len(harmonics))
+		if sum > 0 {
+			for i, h := range harmonics {
+				normalized[i] = h / sum
+			}
+		}
+
+		attackSamples := int(attack * sampleRate)
+		decaySamples := int(decay * sampleRate)
+		releaseSamples := int(release * sampleRate)
+		if attackSamples < 1 {
+			attackSamples = 1
+		}
+		if decaySamples < 1 {
+			decaySamples = 1
+		}
+		if releaseSamples < 1 {
+			releaseSamples = 1
+		}
+
+		var phase float64
+		phaseIncrement := twoPi * freq / sampleRate
+
+		nextWaveSample := func() float32 {
+			var sampleVal float64
+			for i, amp := range normalized {
+				harmonicFactor := float64(i + 1)
+				sampleVal += amp * math.Sin(phase*harmonicFactor)
+			}
+			phase += phaseIncrement
+			if phase >= twoPi {
+				phase -= twoPi
+			}
+			return float32(sampleVal)
+		}
+
+		currentLevel := 0.0
+		released := false
+
+		// Attack phase
+		for i := 0; i < attackSamples; i++ {
+			if stopFlag != nil && stopFlag.Load() {
+				released = true
+				break
+			}
+			sample := nextWaveSample()
+			t := float64(i) / float64(attackSamples)
+			currentLevel = t
+			out <- sample * float32(currentLevel)
+		}
+
+		// Decay phase
+		if !released {
+			for i := 0; i < decaySamples; i++ {
+				if stopFlag != nil && stopFlag.Load() {
+					released = true
+					break
+				}
+				sample := nextWaveSample()
+				t := float64(i) / float64(decaySamples)
+				currentLevel = 1.0 + t*(sustainLevel-1.0)
+				out <- sample * float32(currentLevel)
+			}
+		}
+
+		// Sustain phase: holds sustainLevel until stopFlag becomes true
+		if !released {
+			currentLevel = sustainLevel
+			for {
+				if stopFlag != nil && stopFlag.Load() {
+					break
+				}
+				sample := nextWaveSample()
+				out <- sample * float32(currentLevel)
+			}
+		}
+
+		// Release phase: smooth ramp from currentLevel down to 0.0
+		startReleaseLevel := currentLevel
+		for i := 0; i < releaseSamples; i++ {
+			sample := nextWaveSample()
+			t := float64(i) / float64(releaseSamples)
+			level := startReleaseLevel * (1.0 - t)
+			out <- sample * float32(level)
+		}
+	}()
+	return out
+}
+
+func findDefaultMidiDevice() string {
+	matches, err := filepath.Glob("/dev/snd/midi*")
+	if err == nil && len(matches) > 0 {
+		return matches[0]
+	}
+	return ""
+}
+
+func startMidiListener(devPath string, addChan chan<- MixInput, tuning float64, harmonics []float64, attack, decay, sustain, release float64, gain float64, panMode string) error {
+	f, err := os.Open(devPath)
+	if err != nil {
+		return fmt.Errorf("failed to open MIDI device %s: %w", devPath, err)
+	}
+
+	go func() {
+		defer f.Close()
+		fmt.Fprintf(os.Stderr, "Listening for MIDI events on %s...\n", devPath)
+
+		var mu sync.Mutex
+		activeVoices := make(map[byte]*atomic.Bool)
+
+		rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+		buf := make([]byte, 256)
+		var runningStatus byte
+		var expectedData int
+		var dataBuf [2]byte
+		var dataCount int
+
+		for {
+			n, err := f.Read(buf)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "MIDI read error: %v\n", err)
+				return
+			}
+
+			for i := 0; i < n; i++ {
+				b := buf[i]
+
+				// Real-time messages (0xF8 - 0xFF) can arrive at any time and do not reset running status
+				if b >= 0xF8 {
+					continue
+				}
+
+				// Status byte
+				if b >= 0x80 {
+					statusType := b & 0xF0
+					if b >= 0xF0 {
+						// System Common message
+						runningStatus = 0
+						if b == 0xF1 || b == 0xF3 {
+							expectedData = 1
+							runningStatus = b
+						} else if b == 0xF2 {
+							expectedData = 2
+							runningStatus = b
+						} else {
+							expectedData = 0
+						}
+					} else {
+						// Channel message
+						runningStatus = b
+						if statusType == 0xC0 || statusType == 0xD0 {
+							expectedData = 1
+						} else {
+							expectedData = 2
+						}
+					}
+					dataCount = 0
+					continue
+				}
+
+				// Data byte
+				if runningStatus == 0 {
+					continue
+				}
+
+				if dataCount < len(dataBuf) {
+					dataBuf[dataCount] = b
+					dataCount++
+				}
+
+				if dataCount == expectedData {
+					statusType := runningStatus & 0xF0
+
+					if statusType == 0x90 { // Note On
+						note := dataBuf[0]
+						vel := dataBuf[1]
+
+						mu.Lock()
+						if oldStop, exists := activeVoices[note]; exists {
+							oldStop.Store(true)
+							delete(activeVoices, note)
+						}
+
+						if vel > 0 {
+							stopFlag := new(atomic.Bool)
+							activeVoices[note] = stopFlag
+							mu.Unlock()
+
+							// Frequency calculation: A4 (note 69) = tuning Hz
+							semitones := float64(int(note) - 69)
+							freq := tuning * math.Pow(2.0, semitones/12.0)
+
+							voiceChan := InteractiveHarmonicNote(freq, harmonics, attack, decay, sustain, release, stopFlag)
+
+							var pan float32
+							switch panMode {
+							case "center":
+								pan = 0.5
+							case "random":
+								pan = rng.Float32()
+							default: // "spread"
+								// Pan based on note range (approx 21 to 108)
+								pan = float32(int(note)-21) / float32(108-21)
+								if pan < 0.15 {
+									pan = 0.15
+								} else if pan > 0.85 {
+									pan = 0.85
+								}
+							}
+
+							velGain := (float32(vel) / 127.0) * float32(gain)
+							leftGain := velGain * (1.0 - pan)
+							rightGain := velGain * pan
+
+							addChan <- MixInput{C: voiceChan, L: leftGain, R: rightGain}
+						} else {
+							mu.Unlock()
+						}
+					} else if statusType == 0x80 { // Note Off
+						note := dataBuf[0]
+						mu.Lock()
+						if stopFlag, exists := activeVoices[note]; exists {
+							stopFlag.Store(true)
+							delete(activeVoices, note)
+						}
+						mu.Unlock()
+					}
+
+					dataCount = 0
+				}
+			}
+		}
+	}()
+
+	return nil
+}
+
 // MixInput combines an audio channel with left and right volume multipliers.
 type MixInput struct {
 	C <-chan float32
@@ -117,8 +370,8 @@ type MixInput struct {
 // waiting for new inputs from addChan.
 // The mixer loop continues as long as there are active inputs, runForever is true, or addChan is not closed.
 func Mixer(inputs []MixInput, addChan <-chan MixInput, runForever bool) (<-chan float32, <-chan float32) {
-	left := make(chan float32, 1024)
-	right := make(chan float32, 1024)
+	left := make(chan float32, chanBufSize)
+	right := make(chan float32, chanBufSize)
 
 	go func() {
 		defer close(left)
@@ -348,7 +601,7 @@ func noteToFreq(note string, tuning float64) (float64, error) {
 }
 
 func RenderChannel(notes []SongNote, attack, decay, sustain, release float64, tuning float64, speed float64, harmonics []float64) <-chan float32 {
-	out := make(chan float32, 1024)
+	out := make(chan float32, chanBufSize)
 	go func() {
 		defer close(out)
 
@@ -459,7 +712,7 @@ func parseEvenScale(scaleStr string) ([]float64, error) {
 }
 
 func main() {
-	modeFlag := flag.String("mode", "harm", "Wave mode: 'sine', 'harm', 'wind3', or 'song'")
+	modeFlag := flag.String("mode", "harm", "Wave mode: 'sine', 'harm', 'wind3', 'song', or 'midi'")
 	attackFlag := flag.Float64("a", 0.1, "Attack time in seconds")
 	decayFlag := flag.Float64("d", 0.2, "Decay time in seconds")
 	sustainFlag := flag.Float64("s", 0.5, "Sustain level (proportion 0.0 to 1.0)")
@@ -474,6 +727,14 @@ func main() {
 	evenFlag := flag.String("even", "A,C,D,E,G", "Even-tempered scale notes (e.g. A,C,D,E,G or C,E,G,Bb)")
 	songFileFlag := flag.String("songfile", "", "Song file to play")
 	songSpeedFlag := flag.Float64("songspeed", 100.0, "Speed to play the song as a percentage (100 is normal)")
+	midiFlag := flag.String("midi", "", "MIDI raw device path (e.g. '/dev/snd/midiC1D0' or 'auto')")
+	midiAttackFlag := flag.Float64("midia", 0.01, "MIDI keyboard attack time in seconds")
+	midiDecayFlag := flag.Float64("midid", 0.1, "MIDI keyboard decay time in seconds")
+	midiSustainFlag := flag.Float64("midis", 0.8, "MIDI keyboard sustain level (0.0 to 1.0)")
+	midiReleaseFlag := flag.Float64("midir", 0.3, "MIDI keyboard release time in seconds")
+	midiGainFlag := flag.Float64("midigain", 0.5, "MIDI note volume multiplier")
+	midiHarmonicsFlag := flag.String("midih", "", "MIDI harmonics vector (defaults to -h if empty)")
+	midiPanFlag := flag.String("midipan", "spread", "MIDI stereo panning mode ('spread', 'center', or 'random')")
 
 	flag.Parse()
 
@@ -492,6 +753,22 @@ func main() {
 			os.Exit(1)
 		}
 		harmonics = append(harmonics, h)
+	}
+
+	// Parse MIDI harmonics if specified, otherwise default to harmonics
+	var midiHarmonics []float64
+	if *midiHarmonicsFlag != "" {
+		mhStrs := strings.Split(*midiHarmonicsFlag, ",")
+		for _, hs := range mhStrs {
+			h, err := strconv.ParseFloat(strings.TrimSpace(hs), 64)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Invalid MIDI harmonic vector: %v\n", err)
+				os.Exit(1)
+			}
+			midiHarmonics = append(midiHarmonics, h)
+		}
+	} else {
+		midiHarmonics = harmonics
 	}
 
 	// Parse poisson arrival (used by wind3)
@@ -613,6 +890,11 @@ func main() {
 				time.Sleep(time.Duration(sleepSecs * float64(time.Second)))
 			}
 		}()
+	} else if *modeFlag == "midi" {
+		runForever = true
+		if *midiFlag == "" {
+			*midiFlag = "auto"
+		}
 	} else if *modeFlag == "song" {
 		if *songFileFlag == "" {
 			fmt.Fprintf(os.Stderr, "Must provide --songfile in song mode\n")
@@ -638,6 +920,30 @@ func main() {
 	} else {
 		fmt.Fprintf(os.Stderr, "Unknown mode: %s\n", *modeFlag)
 		os.Exit(1)
+	}
+
+	// Start MIDI listener if requested
+	if *midiFlag != "" {
+		runForever = true
+		if addChan == nil {
+			addChan = make(chan MixInput, 100)
+		}
+
+		midiDev := *midiFlag
+		if midiDev == "auto" {
+			midiDev = findDefaultMidiDevice()
+			if midiDev == "" {
+				fmt.Fprintf(os.Stderr, "No MIDI device found under /dev/snd/midi*\n")
+				os.Exit(1)
+			}
+			fmt.Fprintf(os.Stderr, "Auto-detected MIDI device: %s\n", midiDev)
+		}
+
+		err := startMidiListener(midiDev, addChan, *tuningFlag, midiHarmonics, *midiAttackFlag, *midiDecayFlag, *midiSustainFlag, *midiReleaseFlag, *midiGainFlag, *midiPanFlag)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error starting MIDI listener: %v\n", err)
+			os.Exit(1)
+		}
 	}
 
 	// 3. Mix it
