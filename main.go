@@ -7,6 +7,7 @@ import (
 	"math"
 	"math/rand"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -114,6 +115,7 @@ type MixInput struct {
 // It sums them and produces a Left and a Right output channel.
 // If runForever is true, the mixer will continue outputting silence when there are no active inputs,
 // waiting for new inputs from addChan.
+// The mixer loop continues as long as there are active inputs, runForever is true, or addChan is not closed.
 func Mixer(inputs []MixInput, addChan <-chan MixInput, runForever bool) (<-chan float32, <-chan float32) {
 	left := make(chan float32, 1024)
 	right := make(chan float32, 1024)
@@ -125,13 +127,17 @@ func Mixer(inputs []MixInput, addChan <-chan MixInput, runForever bool) (<-chan 
 		activeInputs := make([]MixInput, len(inputs))
 		copy(activeInputs, inputs)
 
-		for len(activeInputs) > 0 || runForever {
+		for len(activeInputs) > 0 || runForever || addChan != nil {
 			if addChan != nil {
 				for {
 					select {
-					case newIn := <-addChan:
-						activeInputs = append(activeInputs, newIn)
-						continue
+					case newIn, ok := <-addChan:
+						if ok {
+							activeInputs = append(activeInputs, newIn)
+							continue
+						} else {
+							addChan = nil
+						}
 					default:
 					}
 					break
@@ -260,6 +266,142 @@ func parseFractionalFloat(s string) (float64, error) {
 	return strconv.ParseFloat(s, 64)
 }
 
+type SongNote struct {
+	Note     string
+	Duration float64
+}
+
+func parseSong(filename string) (map[int][]SongNote, error) {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return nil, err
+	}
+
+	channels := make(map[int][]SongNote)
+	lines := strings.Split(string(data), "\n")
+	reNote := regexp.MustCompile(`\(\s*([A-Ga-g][#b]*\d+|rest)\s*,\s*([0-9.]+)\s*\)`)
+	rePrefix := regexp.MustCompile(`^\s*(\d+)\s*:`)
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		chID := 0
+		if m := rePrefix.FindStringSubmatch(line); m != nil {
+			chID, _ = strconv.Atoi(m[1])
+		}
+
+		matches := reNote.FindAllStringSubmatch(line, -1)
+		for _, m := range matches {
+			dur, err := strconv.ParseFloat(m[2], 64)
+			if err != nil {
+				return nil, err
+			}
+			channels[chID] = append(channels[chID], SongNote{
+				Note:     m[1],
+				Duration: dur,
+			})
+		}
+	}
+	return channels, nil
+}
+
+func noteToFreq(note string, tuning float64) (float64, error) {
+	re := regexp.MustCompile(`^([A-Ga-g])([#b]*)(\d+)$`)
+	m := re.FindStringSubmatch(note)
+	if m == nil {
+		return 0, fmt.Errorf("invalid note format: %s", note)
+	}
+
+	letter := m[1][0]
+	if letter >= 'a' && letter <= 'z' {
+		letter -= 'a' - 'A'
+	}
+
+	stdBase := 0.0
+	switch letter {
+	case 'C': stdBase = 0
+	case 'D': stdBase = 2
+	case 'E': stdBase = 4
+	case 'F': stdBase = 5
+	case 'G': stdBase = 7
+	case 'A': stdBase = 9
+	case 'B': stdBase = 11
+	}
+	for i := 0; i < len(m[2]); i++ {
+		if m[2][i] == '#' {
+			stdBase += 1.0
+		} else if m[2][i] == 'b' {
+			stdBase -= 1.0
+		}
+	}
+
+	octave, err := strconv.ParseFloat(m[3], 64)
+	if err != nil {
+		return 0, err
+	}
+
+	semitones := (octave - 4.0)*12.0 + (stdBase - 9.0)
+	return tuning * math.Pow(2.0, semitones/12.0), nil
+}
+
+func RenderChannel(notes []SongNote, attack, decay, sustain, release float64, tuning float64, speed float64, harmonics []float64) <-chan float32 {
+	out := make(chan float32, 1024)
+	go func() {
+		defer close(out)
+
+		var activeEnvelopes []<-chan float32
+		noteIdx := 0
+		samplesUntilNextNote := 0
+
+		for noteIdx < len(notes) || samplesUntilNextNote > 0 || len(activeEnvelopes) > 0 {
+			if samplesUntilNextNote <= 0 && noteIdx < len(notes) {
+				sn := notes[noteIdx]
+				noteIdx++
+
+				actualDuration := sn.Duration * (100.0 / speed)
+				samplesUntilNextNote = int(actualDuration * sampleRate)
+
+				if strings.ToLower(sn.Note) != "rest" {
+					freq, err := noteToFreq(sn.Note, tuning)
+					if err == nil {
+						sTime := actualDuration - attack - decay
+						if sTime < 0 {
+							sTime = 0
+						}
+						wave := HarmonicWave(freq, harmonics)
+						env := Envelope(wave, attack, decay, sustain, sTime, release)
+						activeEnvelopes = append(activeEnvelopes, env)
+					} else {
+						fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
+					}
+				}
+			}
+
+			var sum float32 = 0
+			if len(activeEnvelopes) > 0 {
+				var nextActive []<-chan float32
+				for _, env := range activeEnvelopes {
+					v, ok := <-env
+					if ok {
+						sum += v
+						nextActive = append(nextActive, env)
+					}
+				}
+				activeEnvelopes = nextActive
+			}
+
+			out <- sum
+			if samplesUntilNextNote > 0 {
+				samplesUntilNextNote--
+			}
+		}
+	}()
+	return out
+}
+
 func parseEvenScale(scaleStr string) ([]float64, error) {
 	parts := strings.Split(scaleStr, ",")
 	var bases []float64
@@ -317,7 +459,7 @@ func parseEvenScale(scaleStr string) ([]float64, error) {
 }
 
 func main() {
-	modeFlag := flag.String("mode", "harm", "Wave mode: 'sine', 'harm', or 'wind3'")
+	modeFlag := flag.String("mode", "harm", "Wave mode: 'sine', 'harm', 'wind3', or 'song'")
 	attackFlag := flag.Float64("a", 0.1, "Attack time in seconds")
 	decayFlag := flag.Float64("d", 0.2, "Decay time in seconds")
 	sustainFlag := flag.Float64("s", 0.5, "Sustain level (proportion 0.0 to 1.0)")
@@ -330,6 +472,8 @@ func main() {
 	octavesFlag := flag.String("octaves", "3,4,5", "Comma-separated list of octaves to use in wind3 mode")
 	justFlag := flag.String("just", "", "Just tuning ratios, e.g. '1/1,6/5,4/3,3/2,9/5' or 'pentatonic'")
 	evenFlag := flag.String("even", "A,C,D,E,G", "Even-tempered scale notes (e.g. A,C,D,E,G or C,E,G,Bb)")
+	songFileFlag := flag.String("songfile", "", "Song file to play")
+	songSpeedFlag := flag.Float64("songspeed", 100.0, "Speed to play the song as a percentage (100 is normal)")
 
 	flag.Parse()
 
@@ -469,6 +613,28 @@ func main() {
 				time.Sleep(time.Duration(sleepSecs * float64(time.Second)))
 			}
 		}()
+	} else if *modeFlag == "song" {
+		if *songFileFlag == "" {
+			fmt.Fprintf(os.Stderr, "Must provide --songfile in song mode\n")
+			os.Exit(1)
+		}
+		channels, err := parseSong(*songFileFlag)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error parsing song: %v\n", err)
+			os.Exit(1)
+		}
+
+		for chID, notes := range channels {
+			seqChan := RenderChannel(notes, *attackFlag, *decayFlag, *sustainFlag, *releaseFlag, *tuningFlag, *songSpeedFlag, harmonics)
+
+			rightPct := float32(chID%4)*0.2 + 0.2 // pan 0.2, 0.4, 0.6, 0.8
+			if len(channels) == 1 {
+				rightPct = 0.5
+			}
+			leftPct := 1.0 - rightPct
+
+			initialInputs = append(initialInputs, MixInput{seqChan, leftPct, rightPct})
+		}
 	} else {
 		fmt.Fprintf(os.Stderr, "Unknown mode: %s\n", *modeFlag)
 		os.Exit(1)

@@ -77,4 +77,10 @@ Usage of /tmp/go-build3761695214/b001/exe/windchime:
   go run main.go --mode wind3 --even "A,B,C#,D,E,F#,G#" -p=1 -t=6 | aplay -f S16_LE -c 2 -r 48000
   go run main.go --mode wind3 --even "C,E,G" -p=1 -t=6 | aplay -f S16_LE -c 2 -r 48000
   go run main.go --mode wind3 --even "C,Eb,G" -p=1 -t=6 | aplay -f S16_LE -c 2 -r 48000
+  go run main.go -mode wind3 -octaves 1,2,3,4 -just 4/8,5/8,6/8,7/8 -a=0.1 -d=0.3 -s=0.4 -r=10 -t=2  -p=1  | aplay -f S16_LE -c 2 -r 48000
+  go run main.go -mode wind3 -octaves 1,2,3,4 -just 4/8,5/8,6/8,7/8,9/8,11/8 -a=0.1 -d=0.3 -s=0.4 -r=10 -t=2  -p=1  | aplay -f S16_LE -c 2 -r 48000
+  go run main.go -mode wind3 -octaves 1,2,3,7+7/12 -just 4/8,5/8,6/8,7/8,9/8,11/8 -a=0.1 -d=0.3 -s=0.4 -r=10 -t=2  -p=1  | aplay -f S16_LE -c 2 -r 48000
+  go run main.go -mode wind3 -octaves 1,2,3 -just 4/8,5/8,6/8,7/8 -a=0.1 -d=0.3 -s=0.4 -r=10 -t=2  -p=1  | aplay -f S16_LE -c 2 -r 48000
+  go run main.go -mode wind3 -octaves 1,2,3 -just pentatonic -a=0.1 -d=0.3 -s=0.4 -r=10 -t=2  -p=1  | aplay -f S16_LE -c 2 -r 48000
+
 ```
