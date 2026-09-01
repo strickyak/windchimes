@@ -59,6 +59,16 @@ type Voice struct {
 	phaseIncrement float64
 	harmonics      []float64
 
+	// Chorus (dual detuned oscillator for strings/ensembles)
+	hasChorus bool
+	phase2    float64
+
+	// Vibrato (pitch LFO for solo strings/woodwinds)
+	vibratoRate  float64
+	vibratoDepth float64
+	vibratoPhase float64
+	totalSamples int64
+
 	attackSamples  int
 	decaySamples   int
 	sustainSamples int // > 0 for fixed duration; 0 for interactive sustain until released
@@ -74,6 +84,7 @@ type Voice struct {
 	leftGain  float32
 	rightGain float32
 
+	channel  uint8
 	midiNote byte
 	isMidi   bool
 }
@@ -114,6 +125,54 @@ func newVoice(freq float64, harmonics []float64, attack, decay, sustainLevel, su
 	}
 }
 
+func newVoiceAdvanced(
+	channel uint8,
+	midiNote byte,
+	tuning float64,
+	harmonics []float64,
+	attack, decay, sustainLevel, release float64,
+	leftGain, rightGain float32,
+	hasChorus bool,
+	vibratoRate, vibratoDepth float64,
+) *Voice {
+	semitones := float64(int(midiNote) - 69)
+	freq := tuning * math.Pow(2.0, semitones/12.0)
+
+	attackSamples := int(attack * sampleRate)
+	decaySamples := int(decay * sampleRate)
+	releaseSamples := int(release * sampleRate)
+
+	if attackSamples < 1 {
+		attackSamples = 1
+	}
+	if decaySamples < 1 {
+		decaySamples = 1
+	}
+	if releaseSamples < 1 {
+		releaseSamples = 1
+	}
+
+	return &Voice{
+		freq:           freq,
+		phaseIncrement: twoPi * freq / sampleRate,
+		hasChorus:      hasChorus,
+		vibratoRate:    vibratoRate,
+		vibratoDepth:   vibratoDepth,
+		harmonics:      normalizeHarmonics(harmonics),
+		attackSamples:  attackSamples,
+		decaySamples:   decaySamples,
+		sustainSamples: 0, // Interactive sustain until released
+		releaseSamples: releaseSamples,
+		sustainLevel:   sustainLevel,
+		state:          stateAttack,
+		leftGain:       leftGain,
+		rightGain:      rightGain,
+		channel:        channel,
+		midiNote:       midiNote,
+		isMidi:         true,
+	}
+}
+
 func (v *Voice) NextSample() (float32, bool) {
 	switch v.state {
 	case stateAttack:
@@ -149,6 +208,10 @@ func (v *Voice) NextSample() (float32, bool) {
 			}
 			v.stateSample++
 			if v.stateSample >= v.decaySamples {
+				if v.sustainLevel <= 0.001 {
+					v.state = stateDone
+					return 0, false
+				}
 				v.state = stateSustain
 				v.stateSample = 0
 				v.currentLevel = v.sustainLevel
@@ -198,27 +261,58 @@ func (v *Voice) NextSample() (float32, bool) {
 		return 0, false
 	}
 
+	// Calculate phase increment with vibrato modulation if active
+	v.totalSamples++
+	phaseInc := v.phaseIncrement
+	if v.vibratoDepth > 0 && v.totalSamples > int64(sampleRate*0.12) {
+		v.vibratoPhase += (twoPi * v.vibratoRate) / sampleRate
+		if v.vibratoPhase >= twoPi {
+			v.vibratoPhase -= twoPi
+		}
+		phaseInc *= 1.0 + math.Sin(v.vibratoPhase)*v.vibratoDepth
+	}
+
 	var waveVal float64
 	for i, amp := range v.harmonics {
 		waveVal += amp * math.Sin(v.phase*float64(i+1))
 	}
-	v.phase += v.phaseIncrement
+	v.phase += phaseInc
 	if v.phase >= twoPi {
 		v.phase -= twoPi
+	}
+
+	// Dual-phase chorus detune for ensemble richness
+	if v.hasChorus {
+		var waveVal2 float64
+		for i, amp := range v.harmonics {
+			waveVal2 += amp * math.Sin(v.phase2*float64(i+1))
+		}
+		v.phase2 += phaseInc * 1.0018 // Detuned by ~3 cents
+		if v.phase2 >= twoPi {
+			v.phase2 -= twoPi
+		}
+		waveVal = 0.55*waveVal + 0.45*waveVal2
 	}
 
 	return float32(waveVal * v.currentLevel), true
 }
 
 type AudioEngine struct {
-	mu     sync.Mutex
-	voices []*Voice
-	gain   float32
+	mu           sync.Mutex
+	voices       []*Voice
+	gain         float32
+	reverb       *StereoReverb
+	reverbLevel  float32
+	scratchL     [blockSize]float32
+	scratchR     [blockSize]float32
+	scratchVoice [blockSize]float32
 }
 
-func NewAudioEngine(gain float32) *AudioEngine {
+func NewAudioEngine(gain float32, reverbLevel float32) *AudioEngine {
 	return &AudioEngine{
-		gain: gain,
+		gain:        gain,
+		reverb:      NewStereoReverb(),
+		reverbLevel: reverbLevel,
 	}
 }
 
@@ -280,6 +374,17 @@ func (e *AudioEngine) ReleaseMidiNote(note byte) {
 	}
 }
 
+func (e *AudioEngine) ReleaseMidiChannelNote(channel uint8, note byte) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	for _, v := range e.voices {
+		if v.isMidi && v.channel == channel && v.midiNote == note && !v.released {
+			v.released = true
+		}
+	}
+}
+
 func (e *AudioEngine) RenderBlock(buf []byte, isPlaying func() bool) bool {
 	for i := range buf {
 		buf[i] = 0
@@ -290,48 +395,77 @@ func (e *AudioEngine) RenderBlock(buf []byte, isPlaying func() bool) bool {
 
 	keepRunning := isPlaying != nil && isPlaying()
 
-	if len(e.voices) == 0 {
-		return keepRunning
-	}
-
-	var remainingVoices []*Voice
-	voiceScratch := make([]float32, blockSize)
-
-	for _, v := range e.voices {
-		active := false
-		for i := 0; i < blockSize; i++ {
-			sample, ok := v.NextSample()
-			if ok {
-				active = true
-				voiceScratch[i] = sample
-			} else {
-				voiceScratch[i] = 0
+	if !keepRunning {
+		for _, v := range e.voices {
+			if !v.released {
+				v.released = true
 			}
 		}
+	}
 
-		if active {
-			remainingVoices = append(remainingVoices, v)
-			lScale := v.leftGain * e.gain * 32767.0
-			rScale := v.rightGain * e.gain * 32767.0
+	if len(e.voices) == 0 && !keepRunning {
+		return false
+	}
 
+	// Zero out scratch float buffers
+	for i := 0; i < blockSize; i++ {
+		e.scratchL[i] = 0
+		e.scratchR[i] = 0
+	}
+
+	if len(e.voices) > 0 {
+		var remainingVoices []*Voice
+		for _, v := range e.voices {
+			active := false
 			for i := 0; i < blockSize; i++ {
-				s := voiceScratch[i]
-				if s == 0 {
-					continue
+				sample, ok := v.NextSample()
+				if ok {
+					active = true
+					e.scratchVoice[i] = sample
+				} else {
+					e.scratchVoice[i] = 0
 				}
-				offset := i * 4
-				curL := int16(binary.LittleEndian.Uint16(buf[offset : offset+2]))
-				curR := int16(binary.LittleEndian.Uint16(buf[offset+2 : offset+4]))
+			}
 
-				newL := clampInt16(int32(curL) + int32(s*lScale))
-				newR := clampInt16(int32(curR) + int32(s*rScale))
+			if active {
+				remainingVoices = append(remainingVoices, v)
+				lScale := v.leftGain * e.gain
+				rScale := v.rightGain * e.gain
 
-				binary.LittleEndian.PutUint16(buf[offset:offset+2], uint16(newL))
-				binary.LittleEndian.PutUint16(buf[offset+2:offset+4], uint16(newR))
+				for i := 0; i < blockSize; i++ {
+					s := e.scratchVoice[i]
+					if s != 0 {
+						e.scratchL[i] += s * lScale
+						e.scratchR[i] += s * rScale
+					}
+				}
 			}
 		}
+		e.voices = remainingVoices
 	}
-	e.voices = remainingVoices
+
+	// Apply stereo reverb if enabled
+	if e.reverbLevel > 0 {
+		dry := 1.0 - e.reverbLevel
+		for i := 0; i < blockSize; i++ {
+			l := e.scratchL[i]
+			r := e.scratchR[i]
+			revL, revR := e.reverb.Process(l, r)
+			e.scratchL[i] = l*dry + revL*e.reverbLevel
+			e.scratchR[i] = r*dry + revR*e.reverbLevel
+		}
+	}
+
+	// Convert float32 to int16 little-endian
+	for i := 0; i < blockSize; i++ {
+		offset := i * 4
+		l16 := clampInt16(int32(e.scratchL[i] * 32767.0))
+		r16 := clampInt16(int32(e.scratchR[i] * 32767.0))
+
+		binary.LittleEndian.PutUint16(buf[offset:offset+2], uint16(l16))
+		binary.LittleEndian.PutUint16(buf[offset+2:offset+4], uint16(r16))
+	}
+
 	return len(e.voices) > 0 || keepRunning
 }
 
@@ -564,6 +698,8 @@ func main() {
 	midiGainFlag := flag.Float64("midigain", 0.5, "MIDI note volume multiplier")
 	midiHarmonicsFlag := flag.String("midih", "", "MIDI harmonics vector (defaults to -h if empty)")
 	midiPanFlag := flag.String("midipan", "spread", "MIDI stereo panning mode ('spread', 'center', or 'random')")
+	midiAutoFlag := flag.Bool("midiauto", true, "Automatically use General MIDI instrument presets (voices, harmonics, ADSR, pan) for MIDI playback")
+	reverbFlag := flag.Float64("reverb", 0.15, "Stereo reverb wet mix level (0.0 to 1.0, default 0.15)")
 	outFlag := flag.String("out", "speakers", "Audio output target: 'speakers' (native direct playback) or 'stdout' (PCM byte stream)")
 
 	flag.Parse()
@@ -673,7 +809,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	engine := NewAudioEngine(float32(*ogFlag))
+	engine := NewAudioEngine(float32(*ogFlag), float32(*reverbFlag))
 	var activeSources int32
 	runForever := false
 
@@ -780,6 +916,7 @@ func main() {
 			*midiReleaseFlag,
 			*midiGainFlag,
 			*midiPanFlag,
+			*midiAutoFlag,
 			func() {
 				atomic.AddInt32(&activeSources, -1)
 			},

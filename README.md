@@ -89,10 +89,15 @@ Usage of /tmp/go-build3761695214/b001/exe/windchime:
   go run . -mode wind3 -midi auto
   go run . -mode midi
 
-  # Play a Standard MIDI File (.mid):
-  go run . -midifile midifiles/widor_toccata_\(c\)shattuck.mid
+  # Play a Standard MIDI File with automatic GM voices & orchestral panning (default):
+  go run . -midifile midifiles/vivaldi_4_stagioni_inverno_1_\(c\)pollen.mid
   go run . -midifile midifiles/widor_toccata_\(c\)shattuck.mid -midispeed 150
-  go run . -midifile midifiles/widor_toccata_\(c\)shattuck.mid -midih "10,5,3,2,1" -midir 0.5
+
+  # Customize stereo reverb wet mix (default 0.15):
+  go run . -midifile midifiles/vivaldi_4_stagioni_inverno_1_\(c\)pollen.mid -reverb 0.3
+
+  # Override auto-voices to use manual custom harmonics & envelope:
+  go run . -midifile midifiles/widor_toccata_\(c\)shattuck.mid -midiauto=false -midih "10,5,3,2,1" -midir 0.5
 
   # Play MIDI file alongside stochastic windchimes:
   go run . -mode wind3 -midifile midifiles/widor_toccata_\(c\)shattuck.mid
